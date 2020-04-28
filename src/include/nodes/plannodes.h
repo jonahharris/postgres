@@ -303,6 +303,7 @@ typedef struct RecursiveUnion
 	Oid		   *dupOperators;	/* equality operators to compare with */
 	Oid		   *dupCollations;
 	long		numGroups;		/* estimated number of groups in input */
+	bool		iterative;		/* WITH ITERATIVE */
 } RecursiveUnion;
 
 /* ----------------

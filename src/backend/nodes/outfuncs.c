@@ -468,6 +468,7 @@ _outRecursiveUnion(StringInfo str, const RecursiveUnion *node)
 	WRITE_OID_ARRAY(dupOperators, node->numCols);
 	WRITE_OID_ARRAY(dupCollations, node->numCols);
 	WRITE_LONG_FIELD(numGroups);
+	WRITE_BOOL_FIELD(iterative);
 }
 
 static void
@@ -2254,6 +2255,7 @@ _outPlannerInfo(StringInfo str, const PlannerInfo *node)
 	WRITE_BOOL_FIELD(hasHavingQual);
 	WRITE_BOOL_FIELD(hasPseudoConstantQuals);
 	WRITE_BOOL_FIELD(hasRecursion);
+	WRITE_BOOL_FIELD(hasIteration);
 	WRITE_INT_FIELD(wt_param_id);
 	WRITE_BITMAPSET_FIELD(curOuterRels);
 	WRITE_NODE_FIELD(curOuterParams);
@@ -2942,6 +2944,7 @@ _outQuery(StringInfo str, const Query *node)
 	WRITE_BOOL_FIELD(hasSubLinks);
 	WRITE_BOOL_FIELD(hasDistinctOn);
 	WRITE_BOOL_FIELD(hasRecursive);
+	WRITE_BOOL_FIELD(hasIterative);
 	WRITE_BOOL_FIELD(hasModifyingCTE);
 	WRITE_BOOL_FIELD(hasForUpdate);
 	WRITE_BOOL_FIELD(hasRowSecurity);
@@ -3042,6 +3045,7 @@ _outWithClause(StringInfo str, const WithClause *node)
 
 	WRITE_NODE_FIELD(ctes);
 	WRITE_BOOL_FIELD(recursive);
+	WRITE_BOOL_FIELD(iterative);
 	WRITE_LOCATION_FIELD(location);
 }
 
@@ -3056,6 +3060,7 @@ _outCommonTableExpr(StringInfo str, const CommonTableExpr *node)
 	WRITE_NODE_FIELD(ctequery);
 	WRITE_LOCATION_FIELD(location);
 	WRITE_BOOL_FIELD(cterecursive);
+	WRITE_BOOL_FIELD(cteiterative);
 	WRITE_INT_FIELD(cterefcount);
 	WRITE_NODE_FIELD(ctecolnames);
 	WRITE_NODE_FIELD(ctecoltypes);

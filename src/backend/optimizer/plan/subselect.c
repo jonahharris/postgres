@@ -219,7 +219,7 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 	/* Generate Paths for the subquery */
 	subroot = subquery_planner(root->glob, subquery,
 							   root,
-							   false, tuple_fraction);
+							   false, tuple_fraction, subquery->hasIterative);
 
 	/* Isolate the params needed by this specific subplan */
 	plan_params = root->plan_params;
@@ -266,7 +266,7 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 			/* Generate Paths for the ANY subquery; we'll need all rows */
 			subroot = subquery_planner(root->glob, subquery,
 									   root,
-									   false, 0.0);
+									   false, 0.0, false);
 
 			/* Isolate the params needed by this specific subplan */
 			plan_params = root->plan_params;
@@ -917,7 +917,7 @@ SS_process_ctes(PlannerInfo *root)
 		 */
 		subroot = subquery_planner(root->glob, subquery,
 								   root,
-								   cte->cterecursive, 0.0);
+								   cte->cterecursive, 0.0, (cte->cteiterative || root->hasIteration));
 
 		/*
 		 * Since the current query level doesn't yet contain any RTEs, it

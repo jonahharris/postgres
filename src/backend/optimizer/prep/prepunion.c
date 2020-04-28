@@ -239,7 +239,8 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 		subroot = rel->subroot = subquery_planner(root->glob, subquery,
 												  root,
 												  false,
-												  root->tuple_fraction);
+												  root->tuple_fraction,
+												  root->hasIteration);
 
 		/*
 		 * It should not be possible for the primitive query to contain any

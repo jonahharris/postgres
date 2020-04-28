@@ -2302,7 +2302,7 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	/* Generate a subroot and Paths for the subquery */
 	rel->subroot = subquery_planner(root->glob, subquery,
 									root,
-									false, tuple_fraction);
+									false, tuple_fraction, false);
 
 	/* Isolate the params needed by this specific subplan */
 	rel->subplan_params = root->plan_params;

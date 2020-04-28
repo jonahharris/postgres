@@ -147,6 +147,7 @@ typedef struct PlannerGlobal
 	char		maxParallelHazard;	/* worst PROPARALLEL hazard level */
 
 	PartitionDirectory partition_directory; /* partition descriptors */
+	bool iterativePlan;
 } PlannerGlobal;
 
 /* macro for fetching the Plan associated with a SubPlan node */
@@ -348,6 +349,7 @@ struct PlannerInfo
 	bool		hasPseudoConstantQuals; /* true if any RestrictInfo has
 										 * pseudoconstant = true */
 	bool		hasRecursion;	/* true if planning a recursive WITH item */
+	bool		hasIteration;	/* true if planning an iteration-optimized recursive WITH item */
 
 	/* These fields are used only when hasRecursion is true: */
 	int			wt_param_id;	/* PARAM_EXEC ID for the work table */
@@ -1787,6 +1789,7 @@ typedef struct RecursiveUnionPath
 	List	   *distinctList;	/* SortGroupClauses identifying target cols */
 	int			wtParam;		/* ID of Param representing work table */
 	double		numGroups;		/* estimated number of groups in input */
+	bool		iterative;		/* WITH ITERATIVE */
 } RecursiveUnionPath;
 
 /*

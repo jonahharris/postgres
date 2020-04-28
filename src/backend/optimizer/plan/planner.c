@@ -315,6 +315,7 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 	glob->lastPlanNodeId = 0;
 	glob->transientPlan = false;
 	glob->dependsOnRole = false;
+	glob->iterativePlan = parse->hasIterative;
 
 	/*
 	 * Assess whether it's feasible to use parallel mode for this query. We
@@ -403,7 +404,7 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 
 	/* primary planning entry point (may recurse for subqueries) */
 	root = subquery_planner(glob, parse, NULL,
-							false, tuple_fraction);
+							false, tuple_fraction, parse->hasIterative);
 
 	/* Select best Path and turn it into a Plan */
 	final_rel = fetch_upper_rel(root, UPPERREL_FINAL, NULL);
@@ -596,7 +597,7 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 PlannerInfo *
 subquery_planner(PlannerGlobal *glob, Query *parse,
 				 PlannerInfo *parent_root,
-				 bool hasRecursion, double tuple_fraction)
+				 bool hasRecursion, double tuple_fraction, bool hasIteration)
 {
 	PlannerInfo *root;
 	List	   *newWithCheckOptions;
@@ -630,6 +631,7 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	root->qual_security_level = 0;
 	root->inhTargetKind = INHKIND_NONE;
 	root->hasRecursion = hasRecursion;
+	root->hasIteration = hasIteration;
 	if (hasRecursion)
 		root->wt_param_id = assign_special_exec_param(root);
 	else

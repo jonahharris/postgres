@@ -128,6 +128,7 @@ typedef struct Query
 	bool		hasSubLinks;	/* has subquery SubLink */
 	bool		hasDistinctOn;	/* distinctClause is from DISTINCT ON */
 	bool		hasRecursive;	/* WITH RECURSIVE was specified */
+	bool		hasIterative;	/* WITH ITERATIVE was specified */
 	bool		hasModifyingCTE;	/* has INSERT/UPDATE/DELETE in WITH */
 	bool		hasForUpdate;	/* FOR [KEY] UPDATE/SHARE was specified */
 	bool		hasRowSecurity; /* rewriter has applied some RLS policy */
@@ -1396,7 +1397,8 @@ typedef struct WithClause
 {
 	NodeTag		type;
 	List	   *ctes;			/* list of CommonTableExprs */
-	bool		recursive;		/* true = WITH RECURSIVE */
+	bool		recursive;		/* true = WITH RECURSIVE (or ITERATIVE) */
+	bool		iterative;		/* true = WITH ITERATIVE */
 	int			location;		/* token location, or -1 if unknown */
 } WithClause;
 
@@ -1455,6 +1457,7 @@ typedef struct CommonTableExpr
 	int			location;		/* token location, or -1 if unknown */
 	/* These fields are set during parse analysis: */
 	bool		cterecursive;	/* is this CTE actually recursive? */
+	bool		cteiterative;	/* is this CTE iterative? */
 	int			cterefcount;	/* number of RTEs referencing this CTE
 								 * (excluding internal self-references) */
 	List	   *ctecolnames;	/* list of output column names */

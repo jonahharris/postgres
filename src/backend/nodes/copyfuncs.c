@@ -2556,6 +2556,7 @@ _copyWithClause(const WithClause *from)
 
 	COPY_NODE_FIELD(ctes);
 	COPY_SCALAR_FIELD(recursive);
+	COPY_SCALAR_FIELD(iterative);
 	COPY_LOCATION_FIELD(location);
 
 	return newnode;
@@ -2599,6 +2600,7 @@ _copyCommonTableExpr(const CommonTableExpr *from)
 	COPY_NODE_FIELD(ctequery);
 	COPY_LOCATION_FIELD(location);
 	COPY_SCALAR_FIELD(cterecursive);
+	COPY_SCALAR_FIELD(cteiterative);
 	COPY_SCALAR_FIELD(cterefcount);
 	COPY_NODE_FIELD(ctecolnames);
 	COPY_NODE_FIELD(ctecoltypes);
@@ -3066,6 +3068,7 @@ _copyQuery(const Query *from)
 	COPY_SCALAR_FIELD(hasSubLinks);
 	COPY_SCALAR_FIELD(hasDistinctOn);
 	COPY_SCALAR_FIELD(hasRecursive);
+	COPY_SCALAR_FIELD(hasIterative);
 	COPY_SCALAR_FIELD(hasModifyingCTE);
 	COPY_SCALAR_FIELD(hasForUpdate);
 	COPY_SCALAR_FIELD(hasRowSecurity);
