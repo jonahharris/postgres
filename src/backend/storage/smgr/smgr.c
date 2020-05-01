@@ -61,6 +61,7 @@ typedef struct f_smgr
 	void		(*smgr_truncate) (SMgrRelation reln, ForkNumber forknum,
 								  BlockNumber nblocks);
 	void		(*smgr_immedsync) (SMgrRelation reln, ForkNumber forknum);
+	bool		(*smgr_aio) (aio_req_t *);
 } f_smgr;
 
 static const f_smgr smgrsw[] = {
@@ -81,6 +82,7 @@ static const f_smgr smgrsw[] = {
 		.smgr_nblocks = mdnblocks,
 		.smgr_truncate = mdtruncate,
 		.smgr_immedsync = mdimmedsync,
+		.smgr_aio = mdaio,
 	}
 };
 
@@ -709,3 +711,13 @@ AtEOXact_SMgr(void)
 		smgrclose(rel);
 	}
 }
+
+/*
+ *	smgraio() -- Asynchronous I/O request.
+ */
+bool
+smgraio (aio_req_t *req)
+{
+    return (*(smgrsw[0].smgr_aio)) (req);
+}
+

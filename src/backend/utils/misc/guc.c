@@ -2060,6 +2060,24 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"enable_directio", PGC_POSTMASTER, DEVELOPER_OPTIONS,
+			gettext_noop("Enables Direct I/O."),
+			NULL
+		},
+		&EnableDirectIO,
+		false, NULL, NULL
+	},
+
+	{
+		{"enable_asyncio", PGC_POSTMASTER, DEVELOPER_OPTIONS,
+			gettext_noop("Enables Asynchronous I/O."),
+			NULL
+		},
+		&EnableAsyncIO,
+		false, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL
@@ -3398,6 +3416,15 @@ static struct config_int ConfigureNamesInt[] =
 		&tcp_user_timeout,
 		0, 0, INT_MAX,
 		NULL, assign_tcp_user_timeout, show_tcp_user_timeout
+	},
+
+	{
+		{"max_asyncio_events", PGC_POSTMASTER, RESOURCES_KERNEL,
+			gettext_noop("Sets the maximum number of asynchronous I/O events per request."),
+			NULL
+		},
+		&max_asyncio_events,
+		16, 1, MAX_AIO_BATCH_SIZE, NULL, NULL
 	},
 
 	/* End-of-list marker */

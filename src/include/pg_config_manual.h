@@ -123,6 +123,12 @@
 #define ALIGNOF_BUFFER	32
 
 /*
+ * Preferred alignment for Direct I/O buffers. This should generally be done
+ * on a 512-byte boundary.
+ */
+#define ALIGNOF_DIRECTIO	512
+
+/*
  * If EXEC_BACKEND is defined, the postmaster uses an alternative method for
  * starting subprocesses: Instead of simply using fork(), as is standard on
  * Unix platforms, it uses fork()+exec() or something equivalent on Windows,
@@ -143,6 +149,15 @@
  */
 #if HAVE_DECL_POSIX_FADVISE && defined(HAVE_POSIX_FADVISE)
 #define USE_POSIX_FADVISE
+#endif
+
+/*
+ * USE_POSIX_AIO controls whether Postgres will use POSIX's version of
+ * asynchonous I/O, or whether we'll use libaio.  By default, we'd
+ * prefer to use libaio where available (i.e. on Linux.)
+ */
+#ifndef HAVE_LIBAIO
+# define USE_POSIX_AIO
 #endif
 
 /*

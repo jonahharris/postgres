@@ -76,6 +76,17 @@ typedef struct SMgrRelationData
 
 typedef SMgrRelationData *SMgrRelation;
 
+/* Asynchronous I/O request structure */
+typedef struct {
+  bool            isValid;
+  SMgrRelation    reln;
+  BlockNumber     bnum;
+  ForkNumber      fnum;
+  off_t           offset;
+  int             file;
+  char           *buf;
+} aio_req_t;
+
 #define SmgrIsTemp(smgr) \
 	RelFileNodeBackendIsTemp((smgr)->smgr_rnode)
 
@@ -105,6 +116,7 @@ extern BlockNumber smgrnblocks(SMgrRelation reln, ForkNumber forknum);
 extern void smgrtruncate(SMgrRelation reln, ForkNumber *forknum,
 						 int nforks, BlockNumber *nblocks);
 extern void smgrimmedsync(SMgrRelation reln, ForkNumber forknum);
+extern bool smgraio(aio_req_t *);
 extern void AtEOXact_SMgr(void);
 
 #endif							/* SMGR_H */

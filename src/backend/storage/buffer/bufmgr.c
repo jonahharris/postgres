@@ -473,6 +473,7 @@ static BufferDesc *BufferAlloc(SMgrRelation smgr,
 							   bool *foundPtr);
 static void FlushBuffer(BufferDesc *buf, SMgrRelation reln);
 static void AtProcExit_Buffers(int code, Datum arg);
+static int PerformAIORequest(int start_buffer_id, int num_buffers);
 static void CheckForBufferLeaks(void);
 static int	rnode_comparator(const void *p1, const void *p2);
 static int	buffertag_comparator(const void *p1, const void *p2);
@@ -705,6 +706,135 @@ ReadBufferWithoutRelcache(RelFileNode rnode, ForkNumber forkNum,
 							 mode, strategy, &hit);
 }
 
+static int
+PerformAIORequest (
+  int start_buffer_id,
+  int num_buffers
+) {
+  int ii = 0;
+  int num_requests = 0;
+  int buf_id = start_buffer_id;
+  aio_req_t req[MAX_AIO_BATCH_SIZE];
+  BufferDesc *buf;
+  uint32 buf_state;
+
+  Assert(num_buffers <= MAX_AIO_BATCH_SIZE);
+  Assert((start_buffer_id + num_buffers) <= NBuffers);
+
+  memset(req, 0, (sizeof(req)));
+
+  for (ii = 0; ii < num_buffers; ++ii) {
+    XLogRecPtr recptr;
+
+    buf = GetBufferDescriptor(buf_id++);
+
+    buf_state = pg_atomic_read_u32(&buf->state);
+    if (!(buf_state & BM_VALID)
+      || !(buf_state & BM_DIRTY)
+      || (buf_state & BM_IO_IN_PROGRESS)) {
+      continue;
+    }
+
+    buf_state = LockBufHdr(buf);
+    if (!(buf_state & BM_VALID) || !(buf_state & BM_DIRTY)) {
+      UnlockBufHdr(buf, buf_state);
+      continue;
+    }
+
+    ResourceOwnerEnlargeBuffers(CurrentResourceOwner);
+    ReservePrivateRefCountEntry();
+    PinBuffer_Locked(buf);
+    if (!LWLockConditionalAcquire(BufferDescriptorGetContentLock(buf),
+      LW_SHARED)) {
+      UnpinBuffer(buf, true);
+      continue;
+    }
+
+    buf_state = LockBufHdr(buf);
+    if (buf_state & BM_IO_IN_PROGRESS) {
+      LWLockRelease(BufferDescriptorGetContentLock(buf));
+      UnlockBufHdr(buf, buf_state);
+      UnpinBuffer(buf, true);
+      continue;
+    }
+
+    if (!LWLockConditionalAcquire(BufferDescriptorGetIOLock(buf),
+      LW_EXCLUSIVE)) {
+      LWLockRelease(BufferDescriptorGetContentLock(buf));
+      UnlockBufHdr(buf, buf_state);
+      UnpinBuffer(buf, true);
+      continue;
+    }
+
+    if (buf_state & BM_IO_IN_PROGRESS) {
+      LWLockRelease(BufferDescriptorGetIOLock(buf));
+      LWLockRelease(BufferDescriptorGetContentLock(buf));
+      UnlockBufHdr(buf, buf_state);
+      UnpinBuffer(buf, true);
+      continue;
+    }
+
+    if (!(buf_state & BM_DIRTY)) {
+      LWLockRelease(BufferDescriptorGetIOLock(buf));
+      LWLockRelease(BufferDescriptorGetContentLock(buf));
+      UnlockBufHdr(buf, buf_state);
+      UnpinBuffer(buf, true);
+      continue;
+    }
+
+    recptr = BufferGetLSN(buf);
+
+    buf_state &= ~BM_JUST_DIRTIED;
+    buf_state |= BM_IO_IN_PROGRESS;
+
+    UnlockBufHdr(buf, buf_state);
+
+    if (buf_state & BM_PERMANENT) {
+      XLogFlush(recptr);
+    }
+
+    req[ii].reln = smgropen(buf->tag.rnode, InvalidBackendId);
+    req[ii].bnum = buf->tag.blockNum;
+    req[ii].fnum = buf->tag.forkNum,
+    req[ii].buf = PageSetChecksumCopy((Page) BufHdrGetBlock(
+          buf), buf->tag.blockNum);
+    req[ii].isValid = true;
+
+    ++num_requests;
+  }
+
+  if (0 < num_requests) {
+    /* Tell the storage manager to do it's job */
+    if (!(smgraio(req))) {
+      elog(PANIC, "SMGRAIO error!\n");
+    }
+
+    pgBufferUsage.shared_blks_written += num_requests;
+
+    buf_id = start_buffer_id;
+    for (ii = 0; ii < num_buffers; ++ii) {
+      buf = GetBufferDescriptor(buf_id++);
+
+      if (!req[ii].isValid) {
+        continue;
+      }
+
+      /* Lock the buffer header while we play with it */
+      buf_state = LockBufHdr(buf);
+      buf_state &= ~(BM_IO_IN_PROGRESS | BM_IO_ERROR);
+      if (!(buf_state & BM_JUST_DIRTIED)) {
+        buf_state &= ~(BM_DIRTY | BM_CHECKPOINT_NEEDED);
+      }
+
+      LWLockRelease(BufferDescriptorGetIOLock(buf));
+      LWLockRelease(BufferDescriptorGetContentLock(buf));
+      UnlockBufHdr(buf, buf_state);
+      UnpinBuffer(buf, true);
+    }
+  }
+
+  return (num_requests);
+} /* PerformAIORequest() */
 
 /*
  * ReadBuffer_common -- common logic for all ReadBuffer variants
@@ -2293,29 +2423,53 @@ BgBufferSync(WritebackContext *wb_context)
 	reusable_buffers = reusable_buffers_est;
 
 	/* Execute the LRU scan */
-	while (num_to_scan > 0 && reusable_buffers < upcoming_alloc_est)
-	{
-		int			sync_state = SyncOneBuffer(next_to_clean, true,
-											   wb_context);
+	if (EnableAsyncIO) {
+		/*
+		 * No strategy other than to keep it as clean as possible.
+		 */
+		saved_info_valid = false;
+		while (num_to_scan > 0) {
+			int request_size = Min(num_to_scan, max_asyncio_events);
 
-		if (++next_to_clean >= NBuffers)
-		{
-			next_to_clean = 0;
-			next_passes++;
-		}
-		num_to_scan--;
-
-		if (sync_state & BUF_WRITTEN)
-		{
-			reusable_buffers++;
-			if (++num_written >= bgwriter_lru_maxpages)
-			{
-				BgWriterStats.m_maxwritten_clean++;
-				break;
+			/* XXX refactor to remove duplicate aio call */
+			if ((next_to_clean + request_size) >= NBuffers) {
+				request_size = (NBuffers - next_to_clean);
+				num_written += PerformAIORequest(next_to_clean, request_size);
+        reusable_buffers += num_written;
+				next_to_clean = 0;
+				++next_passes;
+			} else {
+				num_written += PerformAIORequest(next_to_clean, request_size);
+        reusable_buffers += num_written;
+				next_to_clean += request_size;
 			}
+			num_to_scan -= request_size;
 		}
-		else if (sync_state & BUF_REUSABLE)
-			reusable_buffers++;
+	} else {
+		while (num_to_scan > 0 && reusable_buffers < upcoming_alloc_est)
+		{
+			int			sync_state = SyncOneBuffer(next_to_clean, true,
+													 wb_context);
+
+			if (++next_to_clean >= NBuffers)
+			{
+				next_to_clean = 0;
+				next_passes++;
+			}
+			num_to_scan--;
+
+			if (sync_state & BUF_WRITTEN)
+			{
+				reusable_buffers++;
+				if (++num_written >= bgwriter_lru_maxpages)
+				{
+					BgWriterStats.m_maxwritten_clean++;
+					break;
+				}
+			}
+			else if (sync_state & BUF_REUSABLE)
+				reusable_buffers++;
+		}
 	}
 
 	BgWriterStats.m_buf_written_clean += num_written;

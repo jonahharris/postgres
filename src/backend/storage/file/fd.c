@@ -271,6 +271,11 @@ static Oid *tempTableSpaces = NULL;
 static int	numTempTableSpaces = -1;
 static int	nextTempTableSpace = 0;
 
+#ifdef USE_POSIX_AIO
+# include <aio.h>
+#else
+# include <libaio.h>
+#endif /* USE_POSIX_AIO */
 
 /*--------------------
  *
@@ -335,6 +340,11 @@ static void unlink_if_exists_fname(const char *fname, bool isdir, int elevel);
 
 static int	fsync_parent_path(const char *fname, int elevel);
 
+
+/* Asynchronous and Direct I/O GUCs */
+bool EnableDirectIO = false;
+bool EnableAsyncIO = false;
+int max_asyncio_events = MAX_AIO_BATCH_SIZE;
 
 /*
  * pg_fsync --- do fsync with or without writethrough
@@ -1692,6 +1702,177 @@ OpenTemporaryFileInTablespace(Oid tblspcOid, bool rejectError)
 
 	return file;
 }
+
+#ifdef USE_POSIX_AIO
+bool
+FileAIO (
+  aio_req_t *req
+) {
+  struct aiocb aio_array[MAX_AIO_BATCH_SIZE];
+  struct aiocb *aio_list[MAX_AIO_BATCH_SIZE];
+  int rc;
+  int ii = 0;
+  int aio_nent = 0;
+
+  memset(aio_array, 0, sizeof(aio_array));
+
+  for (ii = 0; ii < max_asyncio_events; ++ii) {
+    if (!req[ii].isValid) {
+      continue;
+    }
+
+    Assert(FileIsValid(req[ii].file));
+    rc = FileAccess(req[ii].file);
+    if (rc < 0) {
+      elog(ERROR, "FileAccess returned %d at line %d in %s",
+        rc, __LINE__, __func__);
+      continue;
+    }
+
+    aio_array[aio_nent].aio_lio_opcode = LIO_WRITE;
+    aio_array[aio_nent].aio_fildes = VfdCache[req[ii].file].fd;
+    aio_array[aio_nent].aio_buf = req[ii].buf;
+    aio_array[aio_nent].aio_nbytes = BLCKSZ;
+    aio_array[aio_nent].aio_offset = req[ii].offset;
+    aio_list[aio_nent] = &aio_array[aio_nent];
+
+    ++aio_nent;
+  }
+
+  rc = lio_listio(LIO_WAIT, aio_list, aio_nent, 0);
+  if (rc) {
+    if (EINTR == errno) {
+      int continue_loop;
+
+      do {
+        aio_suspend((const struct aiocb *const *) aio_list,
+          aio_nent, NULL);
+        continue_loop = 0;
+        for (ii = 0; ii < aio_nent; ++ii) {
+          if (EINPROGRESS == aio_error(aio_list[ii])) {
+            continue_loop = 1;
+          } else {
+            if (-1 == aio_return(aio_list[ii])) {
+              ereport(PANIC,
+                (errcode_for_file_access(),
+                errmsg("unhandled POSIX AIO condition: %m")));
+            }
+          }
+        }
+      } while (continue_loop);
+      elog(LOG, "completed EINTR handling");
+    } else {
+      ereport(WARNING,
+        (errcode_for_file_access(),
+        errmsg("lio_listio returned: %m")));
+    }
+  }
+
+  for (ii = 0; ii < aio_nent; ++ii) {
+    int aio_errno = aio_error(aio_list[ii]);
+    size_t aio_ret = aio_return(aio_list[ii]);
+
+    if (BLCKSZ != aio_ret) {
+      errno = aio_errno;
+      ereport(ERROR,
+        (errcode_for_file_access(),
+        errmsg("lio_listio returned: %m")));
+    }
+  }
+
+  return (true);
+} /* FileAIO() */
+#else /* use libaio */
+bool
+FileAIO (
+  aio_req_t *req
+) {
+  int rc, i, num_iocbs;
+  static io_context_t ctx;
+  static bool initialized = false;
+  struct iocb array[MAX_AIO_BATCH_SIZE];
+  struct iocb *list[MAX_AIO_BATCH_SIZE];
+  struct io_event reap[MAX_AIO_BATCH_SIZE];
+
+  /* We only need to do io_setup once */
+  if (!initialized) {
+    memset(&ctx, 0x0, sizeof(ctx));
+    rc = io_setup(MAX_AIO_BATCH_SIZE, &ctx);
+    if (rc) {
+      elog(PANIC, "io_setup returned %d", rc);
+    }
+    initialized = true;
+  }
+
+retry:
+  memset(array, 0x0, sizeof(struct iocb) * MAX_AIO_BATCH_SIZE);
+  memset(reap, 0x0, sizeof(struct io_event) * MAX_AIO_BATCH_SIZE);
+
+  /*
+   * Iterate over the AIO request structure adding each buffer to
+   * the list.
+   */
+  for (i = 0, num_iocbs = 0
+    ; i < max_asyncio_events
+    ; ++i) {
+    if (!req[i].isValid) {
+      continue;
+    }
+
+    Assert(FileIsValid(req[i].file));
+    rc = FileAccess(req[i].file);
+    if (rc < 0) {
+      elog(ERROR, "FileAccess returned %d at line %d in %s",
+        rc, __LINE__, __func__);
+      list[i] = NULL;
+      continue;
+    }
+
+    array[i].aio_lio_opcode = IO_CMD_PWRITE;
+    array[i].aio_fildes = VfdCache[req[i].file].fd;
+    array[i].u.c.buf = req[i].buf;
+    array[i].u.c.nbytes = BLCKSZ;
+    array[i].u.c.offset = req[i].offset;
+    list[num_iocbs++] = &array[i];
+  }
+
+  /* Submit the request for processing */
+  errno = 0;
+  elog(DEBUG1, "submitting libaio request containing %d iocbs", num_iocbs);
+  rc = io_submit(ctx, num_iocbs, list);
+  if (rc != num_iocbs) {
+    elog(PANIC, "io_submit returned %d nr_submitted: %d  errno: %d %m", rc,
+      num_iocbs, errno);
+  }
+
+  rc = io_getevents(ctx, num_iocbs, num_iocbs, reap, NULL);
+  if (rc != num_iocbs) {
+    elog(LOG, "io_getevents failed (nr=%d rc=%d)", num_iocbs, rc);
+    for (i = 0; i < num_iocbs; ++i) {
+      if (reap[i].res2 != 0) {
+        elog(LOG, "io_getevents IO=%d status=%lu errno=%d %m", i,
+          reap[i].res2, errno);
+      }
+
+      if ((reap[i].obj != NULL) &&
+        (reap[i].res != reap[i].obj->u.c.nbytes)) {
+        elog(LOG, "io_getevents missing bytes (expected %lu got %lu)",
+          reap[i].obj->u.c.nbytes, reap[i].res);
+      }
+    }
+
+    /*
+     * XXX this should be changed to handle individual failures rather
+     * than re-submitting the entire request, but for now, just retry.
+     */
+    elog(LOG, "retrying AIO request");
+    goto retry;
+  }
+
+  return (true);
+} /* FileAIO() */
+#endif /* USE_POSIX_AIO */
+
 
 
 /*

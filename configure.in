@@ -1139,6 +1139,8 @@ AC_SUBST(PTHREAD_LIBS)
 ##
 
 AC_CHECK_LIB(m, main)
+AC_CHECK_LIB(rt, main)
+AC_CHECK_LIB(aio, main)
 AC_SEARCH_LIBS(setproctitle, util)
 AC_SEARCH_LIBS(dlopen, dl)
 AC_SEARCH_LIBS(socket, [socket ws2_32])

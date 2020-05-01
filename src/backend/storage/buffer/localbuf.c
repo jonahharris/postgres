@@ -434,7 +434,12 @@ InitLocalBuffers(void)
 
 	/* Allocate and zero buffer headers and auxiliary arrays */
 	LocalBufferDescriptors = (BufferDesc *) calloc(nbufs, sizeof(BufferDesc));
-	LocalBufferBlockPointers = (Block *) calloc(nbufs, sizeof(Block));
+
+	/* Ensure alignment of local buffers */
+	LocalBufferBlockPointers =
+		(Block *) DIOBUFFERALIGN(malloc((sizeof(Block) * nbufs) + ALIGNOF_DIRECTIO));
+	MemSet((void *) LocalBufferBlockPointers, 0, (sizeof(Block) * nbufs));
+
 	LocalRefCount = (int32 *) calloc(nbufs, sizeof(int32));
 	if (!LocalBufferDescriptors || !LocalBufferBlockPointers || !LocalRefCount)
 		ereport(FATAL,

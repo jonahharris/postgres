@@ -44,19 +44,36 @@
 #define FD_H
 
 #include <dirent.h>
+#include "storage/smgr.h"
 
+#ifdef USE_POSIX_AIO
+# include <aio.h>
+#else
+# include <libaio.h>
+#endif /* USE_POSIX_AIO */
 
 typedef int File;
-
 
 /* GUC parameter */
 extern PGDLLIMPORT int max_files_per_process;
 extern PGDLLIMPORT bool data_sync_retry;
+extern PGDLLIMPORT bool EnableDirectIO;
+extern PGDLLIMPORT bool EnableAsyncIO;
+extern PGDLLIMPORT int max_asyncio_events;
 
 /*
  * This is private to fd.c, but exported for save/restore_backend_variables()
  */
 extern int	max_safe_fds;
+
+/*
+ * The platform-dependent maximum number of AIO requests per batch.
+ */
+#ifdef AIO_LISTIO_MAX
+#define MAX_AIO_BATCH_SIZE    AIO_LISTIO_MAX
+#else
+#define MAX_AIO_BATCH_SIZE    16
+#endif /* AIO_LISTIO_MAX */
 
 /*
  * On Windows, we have to interpret EACCES as possibly meaning the same as
@@ -91,6 +108,7 @@ extern char *FilePathName(File file);
 extern int	FileGetRawDesc(File file);
 extern int	FileGetRawFlags(File file);
 extern mode_t FileGetRawMode(File file);
+extern bool FileAIO(aio_req_t *req);
 
 /* Operations used for sharing named temporary files */
 extern File PathNameCreateTemporaryFile(const char *name, bool error_on_failure);

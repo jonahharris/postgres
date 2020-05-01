@@ -770,6 +770,18 @@
 #include_if_exists = '...'		# include file only if it exists
 #include = '...'			# include file
 
+#------------------------------------------------------------------------------
+# AIO/DIO Options
+#------------------------------------------------------------------------------
+
+# Enables usage of direct I/O (O_DIRECT)
+#enable_directio = off
+
+# Enables usage of asynchronous I/O (libaio or POSIX)
+#enable_asyncio = off
+
+# The maximum number of asynchonous I/O events per call (between 1-512)
+#max_asyncio_events = 64
 
 #------------------------------------------------------------------------------
 # CUSTOMIZED OPTIONS

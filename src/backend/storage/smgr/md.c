@@ -87,6 +87,20 @@ typedef struct _MdfdVec
 
 static MemoryContext MdCxt;		/* context for all MdfdVec objects */
 
+/* Direct I/O Support */
+static char *localDirectIOBuffer = NULL;
+static char *alignedDirectIOBuffer = NULL;
+
+/* Direct I/O flags passed to open() */
+#define DIRECT_IO_FLAGS		((EnableDirectIO) ? (PG_O_DIRECT | O_SYNC) : (0))
+
+/* bool DIRECTIO_BUFFER_REQUIRED (void *ptr); */
+#define DIRECTIO_BUFFER_REQUIRED(ptr)                                         \
+	(EnableDirectIO && ((long) ptr & (ALIGNOF_DIRECTIO - 1)))
+	/*
+	** Returns true iff Direct I/O is enabled and the given pointer isn't
+	** properly aligned.
+	*/
 
 /* Populate a file tag describing an md.c segment file. */
 #define INIT_MD_FILETAG(a,xx_rnode,xx_forknum,xx_segno) \
@@ -150,6 +164,15 @@ mdinit(void)
 	MdCxt = AllocSetContextCreate(TopMemoryContext,
 								  "MdSmgr",
 								  ALLOCSET_DEFAULT_SIZES);
+
+	/*
+	 * Initialize the buffer used for handling unaligned reads/writes when
+	 * Direct I/O is enabled.
+	 */
+	if (EnableDirectIO) {
+		localDirectIOBuffer = (char *) palloc(BLCKSZ + ALIGNOF_DIRECTIO);
+		alignedDirectIOBuffer = (char *) DIOBUFFERALIGN(localDirectIOBuffer);
+	}
 }
 
 /*
@@ -201,14 +224,14 @@ mdcreate(SMgrRelation reln, ForkNumber forkNum, bool isRedo)
 
 	path = relpath(reln->smgr_rnode, forkNum);
 
-	fd = PathNameOpenFile(path, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
+	fd = PathNameOpenFile(path, O_RDWR | O_CREAT | O_EXCL | PG_BINARY | DIRECT_IO_FLAGS);
 
 	if (fd < 0)
 	{
 		int			save_errno = errno;
 
 		if (isRedo)
-			fd = PathNameOpenFile(path, O_RDWR | PG_BINARY);
+			fd = PathNameOpenFile(path, O_RDWR | PG_BINARY | DIRECT_IO_FLAGS);
 		if (fd < 0)
 		{
 			/* be sure to report the error reported by create, not open */
@@ -390,6 +413,7 @@ mdextend(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 	off_t		seekpos;
 	int			nbytes;
 	MdfdVec    *v;
+	char		*ptr;
 
 	/* This assert is too expensive to have on normally ... */
 #ifdef CHECK_WRITE_VS_EXTEND
@@ -414,7 +438,15 @@ mdextend(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 
 	Assert(seekpos < (off_t) BLCKSZ * RELSEG_SIZE);
 
-	if ((nbytes = FileWrite(v->mdfd_vfd, buffer, BLCKSZ, seekpos, WAIT_EVENT_DATA_FILE_EXTEND)) != BLCKSZ)
+	/* Use the Direct I/O buffer iff it's required */
+	if (DIRECTIO_BUFFER_REQUIRED(buffer)) {
+		memcpy(alignedDirectIOBuffer, buffer, BLCKSZ);
+		ptr = alignedDirectIOBuffer;
+	} else {
+		ptr = buffer;
+	}
+
+	if ((nbytes = FileWrite(v->mdfd_vfd, ptr, BLCKSZ, seekpos, WAIT_EVENT_DATA_FILE_EXTEND)) != BLCKSZ)
 	{
 		if (nbytes < 0)
 			ereport(ERROR,
@@ -460,7 +492,7 @@ mdopenfork(SMgrRelation reln, ForkNumber forknum, int behavior)
 
 	path = relpath(reln->smgr_rnode, forknum);
 
-	fd = PathNameOpenFile(path, O_RDWR | PG_BINARY);
+	fd = PathNameOpenFile(path, O_RDWR | PG_BINARY | DIRECT_IO_FLAGS);
 
 	if (fd < 0)
 	{
@@ -556,6 +588,10 @@ void
 mdwriteback(SMgrRelation reln, ForkNumber forknum,
 			BlockNumber blocknum, BlockNumber nblocks)
 {
+	if (EnableDirectIO) {
+		return;
+	}
+
 	/*
 	 * Issue flush requests in as few requests as possible; have to split at
 	 * segment boundaries though, since those are actually separate files.
@@ -608,6 +644,7 @@ mdread(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 	off_t		seekpos;
 	int			nbytes;
 	MdfdVec    *v;
+	char		*ptr;
 
 	TRACE_POSTGRESQL_SMGR_MD_READ_START(forknum, blocknum,
 										reln->smgr_rnode.node.spcNode,
@@ -622,7 +659,14 @@ mdread(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 
 	Assert(seekpos < (off_t) BLCKSZ * RELSEG_SIZE);
 
-	nbytes = FileRead(v->mdfd_vfd, buffer, BLCKSZ, seekpos, WAIT_EVENT_DATA_FILE_READ);
+	/* Use the Direct I/O buffer iff it's required */
+	if (DIRECTIO_BUFFER_REQUIRED(buffer)) {
+		ptr = alignedDirectIOBuffer;
+	} else {
+		ptr = buffer;
+	}
+
+	nbytes = FileRead(v->mdfd_vfd, ptr, BLCKSZ, seekpos, WAIT_EVENT_DATA_FILE_READ);
 
 	TRACE_POSTGRESQL_SMGR_MD_READ_DONE(forknum, blocknum,
 									   reln->smgr_rnode.node.spcNode,
@@ -673,6 +717,7 @@ mdwrite(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 	off_t		seekpos;
 	int			nbytes;
 	MdfdVec    *v;
+	char	   *ptr;
 
 	/* This assert is too expensive to have on normally ... */
 #ifdef CHECK_WRITE_VS_EXTEND
@@ -692,7 +737,15 @@ mdwrite(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 
 	Assert(seekpos < (off_t) BLCKSZ * RELSEG_SIZE);
 
-	nbytes = FileWrite(v->mdfd_vfd, buffer, BLCKSZ, seekpos, WAIT_EVENT_DATA_FILE_WRITE);
+	/* Use the Direct I/O buffer iff it's required */
+	if (DIRECTIO_BUFFER_REQUIRED(buffer)) {
+		memcpy(alignedDirectIOBuffer, buffer, BLCKSZ);
+		ptr = alignedDirectIOBuffer;
+	} else {
+		ptr = buffer;
+	}
+
+	nbytes = FileWrite(v->mdfd_vfd, ptr, BLCKSZ, seekpos, WAIT_EVENT_DATA_FILE_WRITE);
 
 	TRACE_POSTGRESQL_SMGR_MD_WRITE_DONE(forknum, blocknum,
 										reln->smgr_rnode.node.spcNode,
@@ -894,6 +947,10 @@ mdimmedsync(SMgrRelation reln, ForkNumber forknum)
 	int			segno;
 	int			min_inactive_seg;
 
+	if (EnableDirectIO) {
+		return;
+	}
+
 	/*
 	 * NOTE: mdnblocks makes sure we have opened all active segments, so that
 	 * fsync loop will get them all!
@@ -930,6 +987,31 @@ mdimmedsync(SMgrRelation reln, ForkNumber forknum)
 
 		segno--;
 	}
+
+}
+
+/*
+ * mdaio() -- Asynchronous I/O request.
+ */
+bool
+mdaio (aio_req_t *req)
+{
+    int         i;
+    MdfdVec    *v;
+
+    Assert(req != NULL);
+
+    for (i = 0; i < max_asyncio_events; ++i) {
+        if (req[i].isValid == false)
+            continue;
+
+        v = _mdfd_getseg(req[i].reln, req[i].fnum, req[i].bnum, false, EXTENSION_FAIL);
+        req[i].file = v->mdfd_vfd;
+        req[i].offset = (off_t) BLCKSZ *(req[i].bnum % ((BlockNumber) RELSEG_SIZE));
+        Assert(req[i].offset < BLCKSZ * RELSEG_SIZE);
+    }
+
+    return FileAIO(req);
 }
 
 /*
@@ -1120,7 +1202,7 @@ _mdfd_openseg(SMgrRelation reln, ForkNumber forknum, BlockNumber segno,
 	fullpath = _mdfd_segpath(reln, forknum, segno);
 
 	/* open the file */
-	fd = PathNameOpenFile(fullpath, O_RDWR | PG_BINARY | oflags);
+	fd = PathNameOpenFile(fullpath, O_RDWR | PG_BINARY | DIRECT_IO_FLAGS | oflags);
 
 	pfree(fullpath);
 
@@ -1324,7 +1406,7 @@ mdsyncfiletag(const FileTag *ftag, char *path)
 		strlcpy(path, p, MAXPGPATH);
 		pfree(p);
 
-		file = PathNameOpenFile(path, O_RDWR | PG_BINARY);
+		file = PathNameOpenFile(path, O_RDWR | PG_BINARY | DIRECT_IO_FLAGS);
 		if (file < 0)
 			return -1;
 		need_to_close = true;
