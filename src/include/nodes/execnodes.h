@@ -1543,6 +1543,7 @@ typedef struct MergeAppendState
  *		RecursiveUnionState is used for performing a recursive union.
  *
  *		recursing			T when we're done scanning the non-recursive term
+ *		iterating			T when we're done scanning the non-recursive term
  *		intermediate_empty	T if intermediate_table is currently empty
  *		working_table		working table (to be scanned by recursive term)
  *		intermediate_table	current recursive output (next generation of WT)
@@ -1552,6 +1553,7 @@ typedef struct RecursiveUnionState
 {
 	PlanState	ps;				/* its first field is NodeTag */
 	bool		recursing;
+	bool		iterating;
 	bool		intermediate_empty;
 	Tuplestorestate *working_table;
 	Tuplestorestate *intermediate_table;

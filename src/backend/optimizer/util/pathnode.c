@@ -3794,6 +3794,7 @@ create_recursiveunion_path(PlannerInfo *root,
 	pathnode->distinctList = distinctList;
 	pathnode->wtParam = wtParam;
 	pathnode->numGroups = numGroups;
+	pathnode->iterative = (root->hasIteration || root->parse->hasIterative);
 
 	cost_recursive_union(&pathnode->path, leftpath, rightpath);
 

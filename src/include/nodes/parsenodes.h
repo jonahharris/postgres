@@ -154,6 +154,8 @@ typedef struct Query
 	bool		hasDistinctOn pg_node_attr(query_jumble_ignore);
 	/* WITH RECURSIVE was specified */
 	bool		hasRecursive pg_node_attr(query_jumble_ignore);
+	/* WITH ITERATIVE was specified */
+	bool		hasIterative pg_node_attr(query_jumble_ignore);
 	/* has INSERT/UPDATE/DELETE/MERGE in WITH */
 	bool		hasModifyingCTE pg_node_attr(query_jumble_ignore);
 	/* FOR [KEY] UPDATE/SHARE was specified */
@@ -1603,6 +1605,7 @@ typedef struct WithClause
 	NodeTag		type;
 	List	   *ctes;			/* list of CommonTableExprs */
 	bool		recursive;		/* true = WITH RECURSIVE */
+	bool		iterative;		/* true = WITH ITERATIVE */
 	ParseLoc	location;		/* token location, or -1 if unknown */
 } WithClause;
 
@@ -1694,6 +1697,8 @@ typedef struct CommonTableExpr
 	/* These fields are set during parse analysis: */
 	/* is this CTE actually recursive? */
 	bool		cterecursive pg_node_attr(query_jumble_ignore);
+	/* is this CTE iterative? */
+	bool		cteiterative pg_node_attr(query_jumble_ignore);
 
 	/*
 	 * Number of RTEs referencing this CTE (excluding internal

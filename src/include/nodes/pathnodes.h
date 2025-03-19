@@ -179,6 +179,9 @@ typedef struct PlannerGlobal
 
 	/* partition descriptors */
 	PartitionDirectory partition_directory pg_node_attr(read_write_ignore);
+
+  /* is plan iterative? */
+  bool    iterativePlan;
 } PlannerGlobal;
 
 /* macro for fetching the Plan associated with a SubPlan node */
@@ -529,6 +532,8 @@ struct PlannerInfo
 	bool		placeholdersFrozen;
 	/* true if planning a recursive WITH item */
 	bool		hasRecursion;
+	/* true if planning an iteration-optimized recursive WITH item */
+	bool		hasIteration;
 
 	/*
 	 * The rangetable index for the RTE_GROUP RTE, or 0 if there is no
@@ -2385,6 +2390,7 @@ typedef struct RecursiveUnionPath
 	List	   *distinctList;	/* SortGroupClauses identifying target cols */
 	int			wtParam;		/* ID of Param representing work table */
 	Cardinality numGroups;		/* estimated number of groups in input */
+	bool    iterative;		/* WITH ITERATIVE */
 } RecursiveUnionPath;
 
 /*

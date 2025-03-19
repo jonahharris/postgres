@@ -110,7 +110,9 @@ ExecRecursiveUnion(PlanState *pstate)
 			/* Each non-duplicate tuple goes to the working table ... */
 			tuplestore_puttupleslot(node->working_table, slot);
 			/* ... and to the caller */
-			return slot;
+			if (!node->iterating) {
+				return slot;
+			}
 		}
 		node->recursing = true;
 	}
@@ -124,8 +126,33 @@ ExecRecursiveUnion(PlanState *pstate)
 			Tuplestorestate *swaptemp;
 
 			/* Done if there's nothing in the intermediate table */
-			if (node->intermediate_empty)
+			if (node->intermediate_empty) {
+				if (!node->iterating) {
+					return NULL;
+				}
+
+				if (!TupIsNull(pstate->ps_ResultTupleSlot)) {
+					tuplestore_select_read_pointer(node->working_table, 1);
+					(void) tuplestore_gettupleslot(node->working_table, true, true, pstate->ps_ResultTupleSlot);
+					tuplestore_select_read_pointer(node->working_table, 0);
+					return pstate->ps_ResultTupleSlot;
+				} else {
+					tuplestore_alloc_read_pointer(node->working_table, 0);
+
+					tuplestore_rescan(node->working_table);
+
+					tuplestore_copy_read_pointer(node->working_table, 0, 1);
+					tuplestore_select_read_pointer(node->working_table, 1);
+
+					tuplestore_gettupleslot(node->working_table, true, true, pstate->ps_ResultTupleSlot);
+					tuplestore_select_read_pointer(node->working_table, 0);
+					return pstate->ps_ResultTupleSlot;
+				}
+
+				 return slot;
+
 				break;
+			}
 
 			/*
 			 * Now we let the intermediate table become the work table.  We
@@ -166,10 +193,16 @@ ExecRecursiveUnion(PlanState *pstate)
 		node->intermediate_empty = false;
 		tuplestore_puttupleslot(node->intermediate_table, slot);
 		/* ... and return it */
-		return slot;
+		if (!node->iterating) {
+			return slot;
+		}
 	}
 
-	return NULL;
+	if (node->iterating) {
+		return pstate->ps_ResultTupleSlot;
+	} else {
+		return NULL;
+	}
 }
 
 /* ----------------------------------------------------------------
@@ -201,6 +234,7 @@ ExecInitRecursiveUnion(RecursiveUnion *node, EState *estate, int eflags)
 
 	/* initialize processing state */
 	rustate->recursing = false;
+	rustate->iterating = node->iterative;
 	rustate->intermediate_empty = true;
 	rustate->working_table = tuplestore_begin_heap(false, false, work_mem);
 	rustate->intermediate_table = tuplestore_begin_heap(false, false, work_mem);
@@ -245,6 +279,11 @@ ExecInitRecursiveUnion(RecursiveUnion *node, EState *estate, int eflags)
 	 * tuples, so we have to initialize them.
 	 */
 	ExecInitResultTypeTL(&rustate->ps);
+
+	if (rustate->iterating) {
+		/* XXX FIX */
+		rustate->ps.ps_ResultTupleSlot = ExecAllocTableSlot(&estate->es_tupleTable, NULL, &TTSOpsMinimalTuple);
+	}
 
 	/*
 	 * Initialize result tuple type.  (Note: we have to set up the result type

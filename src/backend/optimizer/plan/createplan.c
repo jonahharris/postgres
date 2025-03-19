@@ -228,7 +228,8 @@ static RecursiveUnion *make_recursive_union(List *tlist,
 											Plan *righttree,
 											int wtParam,
 											List *distinctList,
-											long numGroups);
+											long numGroups,
+											bool iterate);
 static BitmapAnd *make_bitmap_and(List *bitmapplans);
 static BitmapOr *make_bitmap_or(List *bitmapplans);
 static NestLoop *make_nestloop(List *tlist,
@@ -2768,7 +2769,8 @@ create_recursiveunion_plan(PlannerInfo *root, RecursiveUnionPath *best_path)
 								rightplan,
 								best_path->wtParam,
 								best_path->distinctList,
-								numGroups);
+								numGroups,
+								best_path->iterative);
 
 	copy_generic_path_info(&plan->plan, (Path *) best_path);
 
@@ -5930,7 +5932,8 @@ make_recursive_union(List *tlist,
 					 Plan *righttree,
 					 int wtParam,
 					 List *distinctList,
-					 long numGroups)
+					 long numGroups,
+					 bool iterate)
 {
 	RecursiveUnion *node = makeNode(RecursiveUnion);
 	Plan	   *plan = &node->plan;
@@ -5976,6 +5979,7 @@ make_recursive_union(List *tlist,
 		node->dupCollations = dupCollations;
 	}
 	node->numGroups = numGroups;
+	node->iterative = iterate;
 
 	return node;
 }

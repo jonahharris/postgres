@@ -426,6 +426,7 @@ typedef struct RecursiveUnion
 
 	/* estimated number of groups in input */
 	long		numGroups;
+	bool		iterative; /* WITH ITERATIVE */
 } RecursiveUnion;
 
 /* ----------------

@@ -608,6 +608,7 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 	if (stmt->withClause)
 	{
 		qry->hasRecursive = stmt->withClause->recursive;
+		qry->hasIterative = stmt->withClause->iterative;
 		qry->cteList = transformWithClause(pstate, stmt->withClause);
 		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
 	}
@@ -697,6 +698,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	if (stmt->withClause)
 	{
 		qry->hasRecursive = stmt->withClause->recursive;
+		qry->hasIterative = stmt->withClause->iterative;
 		qry->cteList = transformWithClause(pstate, stmt->withClause);
 		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
 	}
@@ -1436,6 +1438,7 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	if (stmt->withClause)
 	{
 		qry->hasRecursive = stmt->withClause->recursive;
+		qry->hasIterative = stmt->withClause->iterative;
 		qry->cteList = transformWithClause(pstate, stmt->withClause);
 		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
 	}
@@ -1599,6 +1602,7 @@ transformValuesClause(ParseState *pstate, SelectStmt *stmt)
 	if (stmt->withClause)
 	{
 		qry->hasRecursive = stmt->withClause->recursive;
+		qry->hasIterative = stmt->withClause->iterative;
 		qry->cteList = transformWithClause(pstate, stmt->withClause);
 		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
 	}
@@ -1866,6 +1870,7 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 	if (withClause)
 	{
 		qry->hasRecursive = withClause->recursive;
+		qry->hasIterative = withClause->iterative;
 		qry->cteList = transformWithClause(pstate, withClause);
 		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
 	}
@@ -2520,6 +2525,7 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	if (stmt->withClause)
 	{
 		qry->hasRecursive = stmt->withClause->recursive;
+		qry->hasIterative = stmt->withClause->iterative;
 		qry->cteList = transformWithClause(pstate, stmt->withClause);
 		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
 	}

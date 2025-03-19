@@ -139,6 +139,7 @@ transformWithClause(ParseState *pstate, WithClause *withClause)
 		}
 
 		cte->cterecursive = false;
+		cte->cteiterative = withClause->iterative;
 		cte->cterefcount = 0;
 
 		if (!IsA(cte->ctequery, SelectStmt))
